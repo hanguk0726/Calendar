@@ -8,7 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +23,27 @@ import com.google.accompanist.pager.rememberPagerState
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
+    private var mainCalendar: Calendar = Calendar.getInstance()
+    val mainCalendarClone = { mainCalendar.clone() as Calendar }
+    var listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
+    var leftPage = { index: Int ->
+        when (index) {
+            0 -> 2
+            1 -> 0
+            2 -> 1
+            else -> 0
+        }
+    }
+    var rightPage = { index: Int ->
+        when (index) {
+            0 -> 1
+            1 -> 2
+            2 -> 0
+            else -> 2
+        }
+    }
+    var lastPage = 1
+
 
     @ExperimentalPagerApi
     @ExperimentalFoundationApi
@@ -32,13 +54,11 @@ class MainActivity : AppCompatActivity() {
         window.statusBarColor = android.graphics.Color.GRAY
 
         setContent {
-
-            var calendar by remember { mutableStateOf(Calendar.getInstance()) }
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colors.background
             ) {
-                CalendarPager(calendar)
+                CalendarPager()
             }
         }
     }
@@ -46,42 +66,52 @@ class MainActivity : AppCompatActivity() {
     @ExperimentalFoundationApi
     @ExperimentalPagerApi
     @Composable
-    fun CalendarPager(calendar: Calendar) {
-        val calendarList = getCalendarList(calendar)
-        val pagerState = rememberPagerState(pageCount = 3, initialPage = 1)
+    fun CalendarPager() {
+        var pagerState = rememberPagerState(pageCount = 3, initialPage = 1, infiniteLoop = true)
         HorizontalPager(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize(),
             state = pagerState,
             verticalAlignment = Alignment.Top
         ) { index ->
-            CalendarComponent(calendarList[index])
+            LaunchedEffect(pagerState.currentPageOffset) {
+                when {
+                    pagerState.currentPageOffset == 0f ->
+                        listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
+                    pagerState.currentPageOffset < 0 -> {
+                        val calendarOfLeftPage = with(mainCalendarClone()) {
+                            add(Calendar.MONTH, -1)
+                            this
+                        }
+                        listOfMainCalendar[leftPage(pagerState.currentPage)] = calendarOfLeftPage
+                    }
+                    pagerState.currentPageOffset > 0 -> {
+                        val calendarOfRightPage = with(mainCalendarClone()) {
+                            add(Calendar.MONTH, +1)
+                            this
+                        }
+                        listOfMainCalendar[rightPage(pagerState.currentPage)] = calendarOfRightPage
+                    }
+                }
+                val isSwipedLeft = when (pagerState.currentPage) {
+                    0 -> lastPage == 1
+                    1 -> lastPage == 2
+                    2 -> lastPage == 0
+                    else -> false
+                }
+                if (lastPage != pagerState.currentPage) {
+                    if (isSwipedLeft) {
+                        mainCalendar.add(Calendar.MONTH, -1)
+                    } else {
+                        mainCalendar.add(Calendar.MONTH, +1)
+                    }
+                }
+                lastPage = pagerState.currentPage
+            }
+            CalendarComponent(listOfMainCalendar[index])
         }
     }
 
-    private fun getCalendarList(calendar: Calendar): List<Calendar> {
-        val calendarOfPreviousMonth = with(calendar.clone() as Calendar) {
-            val isJanuary = this.get(Calendar.MONTH) == 0
-            if (isJanuary) {
-                set(Calendar.MONTH, 11)
-                set(Calendar.YEAR, this.get(Calendar.YEAR) - 1)
-            } else {
-                set(Calendar.MONTH, calendar.get(Calendar.MONTH) - 1)
-            }
-            this
-        }
-        val calendarOfCurrentMonth = calendar.clone() as Calendar
-        val calendarOfNextMonth = with(calendar.clone() as Calendar) {
-            val isDecember = this.get(Calendar.MONTH) == 11
-            if (isDecember) {
-                set(Calendar.MONTH, 0)
-                set(Calendar.YEAR, this.get(Calendar.YEAR) + 1)
-            } else {
-                set(Calendar.MONTH, calendar.get(Calendar.MONTH) + 1)
-            }
-            this
-        }
-        return listOf(calendarOfPreviousMonth, calendarOfCurrentMonth, calendarOfNextMonth)
-    }
 
     @ExperimentalFoundationApi
     @Composable
@@ -195,18 +225,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
-
     }
 
     private fun getDateData(calendar: Calendar): Triple<List<Int>, List<Int>, List<Int>> {
         val lastDateOfPreviousMonth = with(calendar.clone() as Calendar) {
-            val isJanuary = this.get(Calendar.MONTH) == 0
-            if (isJanuary) {
-                set(Calendar.MONTH, 11)
-            } else {
-                set(Calendar.MONTH, calendar.get(Calendar.MONTH) - 1)
-            }
+            add(Calendar.MONTH, -1)
             getActualMaximum(Calendar.DAY_OF_MONTH)
         }
         val lastDateOfCurrentMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
