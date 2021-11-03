@@ -1,14 +1,10 @@
 package com.example.calendar
 
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.GridCells
-import androidx.compose.foundation.lazy.LazyGridScope
-import androidx.compose.foundation.lazy.LazyVerticalGrid
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -20,9 +16,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.accompanist.pager.ExperimentalPagerApi
+import com.google.accompanist.pager.HorizontalPager
+import com.google.accompanist.pager.rememberPagerState
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
+
+    @ExperimentalPagerApi
     @ExperimentalFoundationApi
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,21 +34,68 @@ class MainActivity : AppCompatActivity() {
         setContent {
 
             var calendar by remember { mutableStateOf(Calendar.getInstance()) }
-            calendar.set(Calendar.MONTH, 8)
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colors.background
             ) {
-                Column(
-                    Modifier.padding(20.dp),
-                ) {
-                    MonthAndYear(calendar)
-                    Spacer(Modifier.height(10.dp))
-                    DayOfWeek()
-                    Spacer(Modifier.height(15.dp))
-                    Date(calendar)
-                }
+                CalendarPager(calendar)
             }
+        }
+    }
+
+    @ExperimentalFoundationApi
+    @ExperimentalPagerApi
+    @Composable
+    fun CalendarPager(calendar: Calendar) {
+        val calendarList = getCalendarList(calendar)
+        val pagerState = rememberPagerState(pageCount = 3, initialPage = 1)
+        HorizontalPager(
+            modifier = Modifier.fillMaxSize(),
+            state = pagerState,
+            verticalAlignment = Alignment.Top
+        ) { index ->
+            CalendarComponent(calendarList[index])
+        }
+    }
+
+    private fun getCalendarList(calendar: Calendar): List<Calendar> {
+        val calendarOfPreviousMonth = with(calendar.clone() as Calendar) {
+            val isJanuary = this.get(Calendar.MONTH) == 0
+            if (isJanuary) {
+                set(Calendar.MONTH, 11)
+                set(Calendar.YEAR, this.get(Calendar.YEAR) - 1)
+            } else {
+                set(Calendar.MONTH, calendar.get(Calendar.MONTH) - 1)
+            }
+            this
+        }
+        val calendarOfCurrentMonth = calendar.clone() as Calendar
+        val calendarOfNextMonth = with(calendar.clone() as Calendar) {
+            val isDecember = this.get(Calendar.MONTH) == 11
+            if (isDecember) {
+                set(Calendar.MONTH, 0)
+                set(Calendar.YEAR, this.get(Calendar.YEAR) + 1)
+            } else {
+                set(Calendar.MONTH, calendar.get(Calendar.MONTH) + 1)
+            }
+            this
+        }
+        return listOf(calendarOfPreviousMonth, calendarOfCurrentMonth, calendarOfNextMonth)
+    }
+
+    @ExperimentalFoundationApi
+    @Composable
+    fun CalendarComponent(calendar: Calendar) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(20.dp),
+        ) {
+            MonthAndYear(calendar)
+            Spacer(Modifier.height(10.dp))
+            DayOfWeek()
+            Spacer(Modifier.height(15.dp))
+            Date(calendar)
         }
     }
 
@@ -91,45 +139,69 @@ class MainActivity : AppCompatActivity() {
     fun Date(calendar: Calendar) {
 
         val dateData = getDateData(calendar).toList()
-        val dateColor = {isInCurrentMonth : Boolean, isSunday : Boolean ->
-            if(isSunday){
-                if(isInCurrentMonth) Color.Red else Color.Red.copy(alpha = 0.3f)
-            }else{
-                if(isInCurrentMonth) Color.Black else Color.LightGray
+        val dateColor = { isInCurrentMonth: Boolean, isSunday: Boolean ->
+            if (isSunday) {
+                if (isInCurrentMonth) Color.Red else Color.Red.copy(alpha = 0.3f)
+            } else {
+                if (isInCurrentMonth) Color.Black else Color.LightGray
             }
 
         }
-        LazyVerticalGrid(
-            cells = GridCells.Fixed(7),
-            content = {
-                var gridIndex = 0
-                for((componentIndex, component) in dateData.withIndex()) {
-                    if(component.isNotEmpty()){
-                        items(component.size) { index ->
-                            Box(
-                                modifier = Modifier
-                                    .height(120.dp)
-                                    .fillMaxWidth(),
-                            ) {
-                                Text(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    text = component[index].toString(),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    textAlign = TextAlign.Center,
-                                    color = dateColor((componentIndex == 1), gridIndex % 7 == 0)
-                                )
-                            }
-                            gridIndex++
+
+        val datesInTotal = dateData[0].size + dateData[1].size + dateData[2].size
+        val maximumLineOfMonth = datesInTotal / 7
+        val listOfRowData = MutableList(maximumLineOfMonth) { mutableListOf<Int>() }
+        var cellIndexOfCalendar = 0
+        var index: Int
+        for (data in dateData) {
+            if (data.isNotEmpty()) {
+                for (i in data.indices) {
+                    index = if (cellIndexOfCalendar != 0) cellIndexOfCalendar / 7 else 0
+                    listOfRowData[index].add(
+                        data[i]
+                    )
+                    cellIndexOfCalendar++
+                }
+            }
+        }
+
+        Column(
+            verticalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            cellIndexOfCalendar = 0
+            for (i in 0 until maximumLineOfMonth) {
+                Row(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    for (j in 0..6) {
+                        var isCurrentMonth = { cellIndexOfCalendar: Int ->
+                            dateData[0].size <= cellIndexOfCalendar && cellIndexOfCalendar < dateData[0].size + dateData[1].size
                         }
+                        var isSunday = j == 0
+                        Box(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                modifier = Modifier.fillMaxWidth(),
+                                text = listOfRowData[i][j].toString(),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                textAlign = TextAlign.Center,
+                                color = dateColor(isCurrentMonth(cellIndexOfCalendar), isSunday)
+                            )
+                        }
+                        cellIndexOfCalendar++
                     }
                 }
-            })
+            }
+        }
+
+
     }
 
     private fun getDateData(calendar: Calendar): Triple<List<Int>, List<Int>, List<Int>> {
         val lastDateOfPreviousMonth = with(calendar.clone() as Calendar) {
-            val isJanuary = calendar.get(Calendar.MONTH) == 0
+            val isJanuary = this.get(Calendar.MONTH) == 0
             if (isJanuary) {
                 set(Calendar.MONTH, 11)
             } else {
