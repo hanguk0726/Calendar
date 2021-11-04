@@ -4,7 +4,8 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.foundation.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
@@ -22,49 +23,67 @@ import androidx.compose.ui.window.Dialog
 import com.google.accompanist.pager.ExperimentalPagerApi
 import com.google.accompanist.pager.HorizontalPager
 import com.google.accompanist.pager.rememberPagerState
+import java.lang.StringBuilder
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
     private var mainCalendar: Calendar = Calendar.getInstance()
     private var listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
-    private var lastPage = 1
-    private var scheduleDataKey: MutableMap<String, MutableList<String>> = mutableMapOf()
-    private var scheduleDataValue : MutableMap<String, Triple<String, Color, MutableList<String>>> = mutableMapOf()
-    private var pickedDateForDialog : Calendar = Calendar.getInstance()
-    val mainCalendarClone = { mainCalendar.clone() as Calendar }
-    val buildKey = {  _calendar: Calendar ->
-        var keyBuilder = ""
-        keyBuilder += _calendar.get(Calendar.YEAR)
-        keyBuilder += _calendar.get(Calendar.MONTH).toString().padStart(2, '0')
-        keyBuilder += _calendar.get(Calendar.DATE).toString().padStart(2, '0')
-        keyBuilder
+    private var lastPageOfCalendarPager = 1
+
+    // <keyOfDataForRequestedDate, scheduleDataId>
+    private var scheduleDataKeyMap: MutableMap<String, MutableList<String>> = mutableMapOf()
+
+    // <scheduleDataId, scheduleDataValue>  scheduleDataValue = content, color, dates(requestedDateAsKey) for this schedule
+    private var scheduleDataValueMap: MutableMap<String, Triple<String, Color, MutableList<String>>> =
+        mutableMapOf()
+    private var calendarOfPickedDateForDialog: Calendar = Calendar.getInstance()
+    private val colorPalettes =
+        listOf(Color(0xFF0275d8), Color(0xFF5cb85c), Color(0xFFf0ad4e), Color(0xFFd9534f))
+    val cloneOfCalendar = { calendar: Calendar -> calendar.clone() as Calendar }
+    val generatedKey = { calendar: Calendar ->
+        with(StringBuilder()) {
+            append(calendar.get(Calendar.YEAR).toString())
+            append(calendar.get(Calendar.MONTH).toString().padStart(2, '0'))
+            append(calendar.get(Calendar.DATE).toString().padStart(2, '0'))
+            toString()
+        }
     }
-    var leftPage = { index: Int ->
-        when (index) {
+    var leftPageOfCalendarPager = { page: Int ->
+        when (page) {
             0 -> 2
             1 -> 0
-            // 2 -> 1
+            // when 2
             else -> 1
         }
     }
-    var rightPage = { index: Int ->
-        when (index) {
+    var rightPageOfCalendarPager = { page: Int ->
+        when (page) {
             0 -> 1
             1 -> 2
-            // 2 -> 0
+            // when 2
             else -> 0
         }
     }
 
-    data class DialogData(
-        val year: Int,
-        val month: Int,
-        val date: Int,
-        val day: Int,
-    )
-    var colorPalettes = listOf(Color(0xFF0275d8),Color(0xFF5cb85c),Color(0xFFf0ad4e),Color(0xFFd9534f))
-
+    val dateColor = { isInCurrentMonth: Boolean, isSunday: Boolean ->
+        if (isSunday) {
+            if (isInCurrentMonth) Color.Red else Color.Red.copy(alpha = 0.3f)
+        } else {
+            if (isInCurrentMonth) Color.Black else Color.LightGray
+        }
+    }
+    val nameOfDayOfWeek = { value: Int ->
+        // enum Calendar.DAY_OF_WEEK -> 1 ~ 7
+        listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")[value - 1]
+    }
+    val nameOfMonth = { value: Int ->
+        listOf(
+            "January", "February", "March", "April", "May", "June", "July", "August",
+            "September", "October", "November", "December"
+        )[value]
+    }
 
     @ExperimentalComposeUiApi
     @ExperimentalPagerApi
@@ -98,38 +117,42 @@ class MainActivity : AppCompatActivity() {
             verticalAlignment = Alignment.Top
         ) { index ->
             LaunchedEffect(pagerState.currentPageOffset) {
+                // when user starts dragging, target page should already be changed.
                 when {
                     pagerState.currentPageOffset == 0f ->
                         listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
                     pagerState.currentPageOffset < 0 -> {
-                        val calendarOfLeftPage = with(mainCalendarClone()) {
+                        val calendarOfLeftPage = with(cloneOfCalendar(mainCalendar)) {
                             add(Calendar.MONTH, -1)
                             this
                         }
-                        listOfMainCalendar[leftPage(pagerState.currentPage)] = calendarOfLeftPage
+                        listOfMainCalendar[leftPageOfCalendarPager(pagerState.currentPage)] =
+                            calendarOfLeftPage
                     }
                     pagerState.currentPageOffset > 0 -> {
-                        val calendarOfRightPage = with(mainCalendarClone()) {
+                        val calendarOfRightPage = with(cloneOfCalendar(mainCalendar)) {
                             add(Calendar.MONTH, +1)
                             this
                         }
-                        listOfMainCalendar[rightPage(pagerState.currentPage)] = calendarOfRightPage
+                        listOfMainCalendar[rightPageOfCalendarPager(pagerState.currentPage)] =
+                            calendarOfRightPage
                     }
                 }
+                // when the drag ends, modify original data(mainCalendar)
                 val isSwipedLeft = when (pagerState.currentPage) {
-                    0 -> lastPage == 1
-                    1 -> lastPage == 2
-                    2 -> lastPage == 0
+                    0 -> lastPageOfCalendarPager == 1
+                    1 -> lastPageOfCalendarPager == 2
+                    2 -> lastPageOfCalendarPager == 0
                     else -> false
                 }
-                if (lastPage != pagerState.currentPage) {
+                if (lastPageOfCalendarPager != pagerState.currentPage) {
                     if (isSwipedLeft) {
                         mainCalendar.add(Calendar.MONTH, -1)
                     } else {
                         mainCalendar.add(Calendar.MONTH, +1)
                     }
                 }
-                lastPage = pagerState.currentPage
+                lastPageOfCalendarPager = pagerState.currentPage
             }
             CalendarComponent(listOfMainCalendar[index])
         }
@@ -196,71 +219,63 @@ class MainActivity : AppCompatActivity() {
         var openDialog by remember {
             mutableStateOf(false)
         }
+
         val dateData = getDateData(calendar).toList()
-        val dateColor = { isInCurrentMonth: Boolean, isSunday: Boolean ->
-            if (isSunday) {
-                if (isInCurrentMonth) Color.Red else Color.Red.copy(alpha = 0.3f)
-            } else {
-                if (isInCurrentMonth) Color.Black else Color.LightGray
-            }
-
-        }
-
-        val datesInTotal = dateData[0].size + dateData[1].size + dateData[2].size
-        val maximumLineOfMonth = datesInTotal / 7
-        val listOfRowData = MutableList(maximumLineOfMonth) { mutableListOf<Int>() }
-        var cellIndexOfCalendar = 0
-        var index: Int
+        val listOfDateOfPreviousMonth = dateData[0]
+        val listOfDateOfCurrentMonth = dateData[1]
+        val listOfDateOfNextMonth = dateData[2]
+        val datesInTotal =
+            listOfDateOfPreviousMonth.size + listOfDateOfCurrentMonth.size + listOfDateOfNextMonth.size
+        val weeksOfMonth = datesInTotal / 7
+        val listOfDateOfEachWeek = MutableList(weeksOfMonth) { mutableListOf<Int>() }
+        var boxIndexOfCalendar = 0
+        var indexOfDataListForEachWeek: Int
         for (data in dateData) {
             if (data.isNotEmpty()) {
                 for (i in data.indices) {
-                    index = if (cellIndexOfCalendar != 0) cellIndexOfCalendar / 7 else 0
-                    listOfRowData[index].add(
+                    indexOfDataListForEachWeek =
+                        if (boxIndexOfCalendar != 0) boxIndexOfCalendar / 7 else 0
+                    listOfDateOfEachWeek[indexOfDataListForEachWeek].add(
                         data[i]
                     )
-                    cellIndexOfCalendar++
+                    boxIndexOfCalendar++
                 }
             }
         }
 
-
         Column(
             verticalArrangement = Arrangement.SpaceEvenly,
         ) {
-            cellIndexOfCalendar = 0
-            for (i in 0 until maximumLineOfMonth) {
+            boxIndexOfCalendar = 0
+            for (i in 0 until weeksOfMonth) {
                 Box(
                     modifier = Modifier.weight(1f)
                 ) {
-
                     Row {
                         for (j in 0..6) {
                             val isPreviousMonth =
-                                cellIndexOfCalendar < dateData[0].size
-
+                                boxIndexOfCalendar < listOfDateOfPreviousMonth.size
                             val isCurrentMonth =
-                                dateData[0].size <= cellIndexOfCalendar && cellIndexOfCalendar < dateData[0].size + dateData[1].size
-
+                                listOfDateOfPreviousMonth.size <= boxIndexOfCalendar && boxIndexOfCalendar < listOfDateOfPreviousMonth.size + listOfDateOfCurrentMonth.size
                             val isSunday = j == 0
-
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
                                         when {
-                                            isPreviousMonth -> with(calendar.clone() as Calendar) {
+                                            isPreviousMonth -> with(cloneOfCalendar(calendar)) {
                                                 add(Calendar.MONTH, -1)
-                                                set(Calendar.DATE, listOfRowData[i][j])
-                                                pickedDateForDialog = this
+                                                set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                                calendarOfPickedDateForDialog = this
                                             }
-                                            isCurrentMonth -> with(calendar.clone() as Calendar) {
-                                                set(Calendar.DATE, listOfRowData[i][j])
-                                                pickedDateForDialog = this
+                                            isCurrentMonth -> with(cloneOfCalendar(calendar)) {
+                                                set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                                calendarOfPickedDateForDialog = this
                                             }
-                                            else -> with(calendar.clone() as Calendar) {
+                                            else -> with(cloneOfCalendar(calendar)) {
                                                 add(Calendar.MONTH, +1)
-                                                set(Calendar.DATE, listOfRowData[i][j])
-                                                pickedDateForDialog = this
+                                                set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                                calendarOfPickedDateForDialog = this
                                             }
                                         }
                                         openDialog = true
@@ -272,57 +287,64 @@ class MainActivity : AppCompatActivity() {
                                 ) {
                                     Text(
                                         modifier = Modifier.fillMaxWidth(),
-                                        text = listOfRowData[i][j].toString(),
+                                        text = listOfDateOfEachWeek[i][j].toString(),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp,
                                         textAlign = TextAlign.Center,
                                         color = dateColor(isCurrentMonth, isSunday)
                                     )
-                                    var key: String
-                                    when{
-                                        isPreviousMonth -> with(calendar.clone() as Calendar) {
+                                    var keyOfRequestedDate: String
+                                    when {
+                                        isPreviousMonth -> with(cloneOfCalendar(calendar)) {
                                             add(Calendar.MONTH, -1)
-                                            set(Calendar.DATE, listOfRowData[i][j])
-                                            key = buildKey(this)
+                                            set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                            keyOfRequestedDate = generatedKey(this)
                                         }
-                                        isCurrentMonth -> with(calendar.clone() as Calendar) {
-                                            set(Calendar.DATE, listOfRowData[i][j])
-                                            key = buildKey(this)
+                                        isCurrentMonth -> with(cloneOfCalendar(calendar)) {
+                                            set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                            keyOfRequestedDate = generatedKey(this)
                                         }
-                                        else -> with(calendar.clone() as Calendar) {
+                                        else -> with(cloneOfCalendar(calendar)) {
                                             add(Calendar.MONTH, +1)
-                                            set(Calendar.DATE, listOfRowData[i][j])
-                                            key = buildKey(this)
+                                            set(Calendar.DATE, listOfDateOfEachWeek[i][j])
+                                            keyOfRequestedDate = generatedKey(this)
                                         }
                                     }
-                                    if(scheduleDataKey.containsKey(key)){
-                                        val valueList = scheduleDataKey[key]
-                                        for(item in valueList!!){
-                                            val _scheduleDataValue = scheduleDataValue[item]
+                                    if (scheduleDataKeyMap.containsKey(keyOfRequestedDate)) {
+                                        val listOfKeyForScheduleDataValue =
+                                            scheduleDataKeyMap[keyOfRequestedDate]
+                                        for (element in listOfKeyForScheduleDataValue!!) {
+                                            val data = scheduleDataValueMap[element]
                                             Spacer(Modifier.height(2.dp))
-                                            Card (
+                                            Card(
                                                 Modifier.fillMaxWidth(0.9f),
                                                 elevation = 0.dp,
-                                                backgroundColor = _scheduleDataValue!!.second,
-                                                shape = RoundedCornerShape(16)){
-                                                Text("${_scheduleDataValue!!.first}",maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 1.dp),
-                                                color= Color.White,
-                                                textAlign = TextAlign.Center)
+                                                backgroundColor = data!!.second,
+                                                shape = RoundedCornerShape(16)
+                                            ) {
+                                                Text(
+                                                    "${data!!.first}",
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.padding(horizontal = 1.dp),
+                                                    color = Color.White,
+                                                    textAlign = TextAlign.Center
+                                                )
                                             }
                                         }
                                     }
                                     Spacer(modifier = Modifier.weight(1.0f))
                                 }
                             }
-                            cellIndexOfCalendar++
+                            boxIndexOfCalendar++
                         }
                     }
                 }
             }
         }
         if (openDialog) {
-            ScheduleDialog(openDialog, pickedDateForDialog) { openDialog = false }
+            ScheduleDialog(openDialog, calendarOfPickedDateForDialog) { openDialog = false }
         }
     }
 
@@ -330,20 +352,11 @@ class MainActivity : AppCompatActivity() {
     @Composable
     fun ScheduleDialog(
         openDialog: Boolean,
-        _pickedDateForDialog : Calendar,
+        calendarDataOfPickedDate: Calendar,
         dismissDialog: () -> Unit
     ) {
         var scheduleContent by remember {
             mutableStateOf("")
-        }
-        val getNameForDayOfWeek = { value: Int ->
-            listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")[value - 1]
-        }
-        val getNameForMonth = { value: Int ->
-            listOf(
-                "January", "February", "March", "April", "May", "June", "July", "August",
-                "September", "October", "November", "December"
-            )[value]
         }
         if (openDialog) {
             Dialog(
@@ -355,18 +368,22 @@ class MainActivity : AppCompatActivity() {
                     modifier = Modifier
                         .width(400.dp)
                         .height(300.dp),
-                    shape =  RoundedCornerShape(8)
+                    shape = RoundedCornerShape(8)
                 ) {
                     Column(
                         verticalArrangement = Arrangement.SpaceAround,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        var title = with(StringBuilder()) {
+                            append(nameOfDayOfWeek(calendarDataOfPickedDate.get(Calendar.DAY_OF_WEEK)))
+                            append(", ")
+                            append(calendarDataOfPickedDate.get(Calendar.DATE))
+                            append(", ")
+                            append(nameOfMonth(calendarDataOfPickedDate.get(Calendar.MONTH)))
+                            toString()
+                        }
                         Text(
-                            text = "${getNameForDayOfWeek(_pickedDateForDialog.get(Calendar.DAY_OF_WEEK))}, ${_pickedDateForDialog.get(Calendar.DATE)}, ${
-                                getNameForMonth(
-                                    _pickedDateForDialog.get(Calendar.MONTH)
-                                )
-                            }",
+                            text = title,
                             textAlign = TextAlign.Center,
                             fontSize = 25.sp
                         )
@@ -376,18 +393,18 @@ class MainActivity : AppCompatActivity() {
                             colors = TextFieldDefaults.outlinedTextFieldColors(
                                 focusedBorderColor = Color.LightGray,
                                 unfocusedBorderColor = Color.Gray,
-                                cursorColor = Color.Black)
+                                cursorColor = Color.Black
+                            )
                         )
-
                         Button(
                             modifier = Modifier
                                 .fillMaxWidth(0.8f)
                                 .height(50.dp),
                             onClick = {
-                                saveSchedule(_pickedDateForDialog,scheduleContent)
+                                saveSchedule(calendarDataOfPickedDate, scheduleContent)
                                 scheduleContent = ""
                                 dismissDialog()
-                              },
+                            },
                             colors = ButtonDefaults.buttonColors(backgroundColor = colorPalettes.first())
                         ) {
                             Text("Submit", color = Color.White)
@@ -399,35 +416,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveSchedule(
-        _pickedDateForDialog : Calendar,
-        scheduleContent : String
+        calendarDataOfPickedDate: Calendar,
+        scheduleContent: String
     ) {
-        val uuidOfScheduleData = UUID.randomUUID().toString()
+        val uuidOfScheduleDataValue = UUID.randomUUID().toString()
         val scheduleDuration = (1..7).random()
-        val keyListOfScheduleData = mutableListOf<String>()
-        val calendar = _pickedDateForDialog.clone() as Calendar
-        for (i in 1 .. scheduleDuration){
-            val _key = buildKey(calendar)
-            keyListOfScheduleData.add(_key)
-            if(scheduleDataKey.containsKey(_key)){
-                scheduleDataKey[_key]!!.add(uuidOfScheduleData)
-            }else{
-                scheduleDataKey[_key] = mutableListOf(uuidOfScheduleData)
+        val listOfKeyOfRequestedDate = mutableListOf<String>()
+        val calendarOfPickedDate = cloneOfCalendar(calendarDataOfPickedDate)
+        for (i in 1..scheduleDuration) {
+            val keyOfDate = generatedKey(calendarOfPickedDate)
+            listOfKeyOfRequestedDate.add(keyOfDate)
+            if (scheduleDataKeyMap.containsKey(keyOfDate)) {
+                scheduleDataKeyMap[keyOfDate]!!.add(uuidOfScheduleDataValue)
+            } else {
+                scheduleDataKeyMap[keyOfDate] = mutableListOf(uuidOfScheduleDataValue)
             }
-            calendar.add(Calendar.DATE, 1)
+            calendarOfPickedDate.add(Calendar.DATE, 1)
         }
-        scheduleDataValue[uuidOfScheduleData] = Triple(scheduleContent, colorPalettes.random(), keyListOfScheduleData)
+        scheduleDataValueMap[uuidOfScheduleDataValue] =
+            Triple(scheduleContent, colorPalettes.random(), listOfKeyOfRequestedDate)
+        Log.i("calendar_logger", "scheduleDataKeyMap :: $scheduleDataKeyMap")
+        Log.i("calendar_logger", "scheduleDataValueMap :: $scheduleDataValueMap")
     }
 
     private fun getDateData(calendar: Calendar): Triple<List<Int>, List<Int>, List<Int>> {
-        val lastDateOfPreviousMonth = with(calendar.clone() as Calendar) {
+        val lastDateOfPreviousMonth = with(cloneOfCalendar(calendar)) {
             add(Calendar.MONTH, -1)
             getActualMaximum(Calendar.DAY_OF_MONTH)
         }
         val lastDateOfCurrentMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
 
-        val dateOfFirstCellOfCalendarGrid = {
-            val firstDayOfCurrentMonth = with(calendar.clone() as Calendar) {
+        val dateOfFirstBoxOfCalendarGrid = {
+            val firstDayOfCurrentMonth = with(cloneOfCalendar(calendar)) {
                 set(Calendar.DATE, 1)
                 get(Calendar.DAY_OF_WEEK)
             }
@@ -438,8 +458,8 @@ class MainActivity : AppCompatActivity() {
                 lastDateOfPreviousMonth - (firstDayOfCurrentMonth - 2)
             }
         }
-        val dateOfLastCellOfCalendarGrid = {
-            val lastDayOfCurrentMonth = with(calendar.clone() as Calendar) {
+        val dateOfLastBoxOfCalendarGrid = {
+            val lastDayOfCurrentMonth = with(cloneOfCalendar(calendar)) {
                 set(Calendar.DATE, lastDateOfCurrentMonth)
                 get(Calendar.DAY_OF_WEEK)
             }
@@ -450,30 +470,30 @@ class MainActivity : AppCompatActivity() {
                 7 - lastDayOfCurrentMonth
             }
         }
-        val listOfDateForPreviousMonth: List<Int> = with(dateOfFirstCellOfCalendarGrid()) {
-            val firstCell = dateOfFirstCellOfCalendarGrid()
-            if (firstCell != 1) {
-                (dateOfFirstCellOfCalendarGrid()..lastDateOfPreviousMonth).toList()
+        val listOfDateOfPreviousMonth: List<Int> = with(dateOfFirstBoxOfCalendarGrid()) {
+            val firstBox = dateOfFirstBoxOfCalendarGrid()
+            if (firstBox != 1) {
+                (dateOfFirstBoxOfCalendarGrid()..lastDateOfPreviousMonth).toList()
             } else {
                 listOf()
             }
         }
-        val listOfDateForCurrentMonth = (1..lastDateOfCurrentMonth).toList()
+        val listOfDateOfCurrentMonth = (1..lastDateOfCurrentMonth).toList()
 
-        val listOfDateForNextMonth: List<Int> = with(dateOfFirstCellOfCalendarGrid()) {
-            val lastCell = dateOfLastCellOfCalendarGrid()
-            if (lastDateOfCurrentMonth != lastCell) {
-                (1..lastCell).toList()
+        val listOfDateOfNextMonth: List<Int> = with(dateOfFirstBoxOfCalendarGrid()) {
+            val lastBox = dateOfLastBoxOfCalendarGrid()
+            if (lastDateOfCurrentMonth != lastBox) {
+                (1..lastBox).toList()
             } else {
                 listOf()
             }
         }
         val totalDates =
-            listOfDateForPreviousMonth.size + listOfDateForCurrentMonth.size + listOfDateForNextMonth.size
+            listOfDateOfPreviousMonth.size + listOfDateOfCurrentMonth.size + listOfDateOfNextMonth.size
         assert(totalDates == 35 || totalDates == 42) {
             "Total dates in the calendar should be 35 or 42"
         }
-        return Triple(listOfDateForPreviousMonth, listOfDateForCurrentMonth, listOfDateForNextMonth)
+        return Triple(listOfDateOfPreviousMonth, listOfDateOfCurrentMonth, listOfDateOfNextMonth)
     }
 
 }
