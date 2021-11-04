@@ -4,47 +4,61 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.google.accompanist.pager.ExperimentalPagerApi
 import com.google.accompanist.pager.HorizontalPager
 import com.google.accompanist.pager.rememberPagerState
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
+
     private var mainCalendar: Calendar = Calendar.getInstance()
+    private var listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
+    private var lastPage = 1
+    private var scheduleData: Map<Int, List<Pair<String, Color>>> = mutableMapOf()
     val mainCalendarClone = { mainCalendar.clone() as Calendar }
-    var listOfMainCalendar = mutableListOf(mainCalendar, mainCalendar, mainCalendar)
     var leftPage = { index: Int ->
         when (index) {
             0 -> 2
             1 -> 0
-            2 -> 1
-            else -> 0
+            // 2 -> 1
+            else -> 1
         }
     }
     var rightPage = { index: Int ->
         when (index) {
             0 -> 1
             1 -> 2
-            2 -> 0
-            else -> 2
+            // 2 -> 0
+            else -> 0
         }
     }
-    var lastPage = 1
+
+    data class DialogData(
+        val year: Int,
+        val month: Int,
+        val date: Int,
+        val day: Int,
+    )
 
 
+    @ExperimentalComposeUiApi
     @ExperimentalPagerApi
     @ExperimentalFoundationApi
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,11 +77,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @ExperimentalComposeUiApi
     @ExperimentalFoundationApi
     @ExperimentalPagerApi
     @Composable
     fun CalendarPager() {
-        var pagerState = rememberPagerState(pageCount = 3, initialPage = 1, infiniteLoop = true)
+        val pagerState = rememberPagerState(pageCount = 3, initialPage = 1, infiniteLoop = true)
         HorizontalPager(
             modifier = Modifier
                 .fillMaxSize(),
@@ -113,6 +128,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    @ExperimentalComposeUiApi
     @ExperimentalFoundationApi
     @Composable
     fun CalendarComponent(calendar: Calendar) {
@@ -159,15 +175,21 @@ class MainActivity : AppCompatActivity() {
             horizontalArrangement = Arrangement.SpaceAround
         ) {
             for (i in 0..6) {
-                Text("${dayOfWeek[i]}", textAlign = TextAlign.Center)
+                Text(dayOfWeek[i], textAlign = TextAlign.Center)
             }
         }
     }
 
+    @ExperimentalComposeUiApi
     @ExperimentalFoundationApi
     @Composable
     fun Date(calendar: Calendar) {
-
+        var dialogData by remember {
+            mutableStateOf(DialogData(2000, 0, 1, 1))
+        }
+        var openDialog by remember {
+            mutableStateOf(false)
+        }
         val dateData = getDateData(calendar).toList()
         val dateColor = { isInCurrentMonth: Boolean, isSunday: Boolean ->
             if (isSunday) {
@@ -195,37 +217,144 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+
         Column(
             verticalArrangement = Arrangement.SpaceEvenly,
         ) {
             cellIndexOfCalendar = 0
             for (i in 0 until maximumLineOfMonth) {
-                Row(
+                Box(
                     modifier = Modifier.weight(1f)
                 ) {
-                    for (j in 0..6) {
-                        var isCurrentMonth = { cellIndexOfCalendar: Int ->
-                            dateData[0].size <= cellIndexOfCalendar && cellIndexOfCalendar < dateData[0].size + dateData[1].size
+
+                    Row {
+                        for (j in 0..6) {
+                            val isPreviousMonth =
+                                cellIndexOfCalendar < dateData[0].size
+
+                            val isCurrentMonth =
+                                dateData[0].size <= cellIndexOfCalendar && cellIndexOfCalendar < dateData[0].size + dateData[1].size
+
+                            val isSunday = j == 0
+
+                            val initDialogData = { _calendar: Calendar ->
+                                dialogData = DialogData(
+                                    _calendar.get(Calendar.YEAR),
+                                    _calendar.get(Calendar.MONTH),
+                                    listOfRowData[i][j],
+                                    _calendar.get(Calendar.DAY_OF_WEEK)
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        when {
+                                            isPreviousMonth -> with(calendar.clone() as Calendar) {
+                                                add(Calendar.MONTH, -1)
+                                                set(Calendar.DATE, listOfRowData[i][j])
+                                                initDialogData(this)
+                                            }
+                                            isCurrentMonth -> with(calendar) {
+                                                set(Calendar.DATE, listOfRowData[i][j])
+                                                initDialogData(this)
+                                            }
+                                            else -> with(calendar.clone() as Calendar) {
+                                                add(Calendar.MONTH, +1)
+                                                set(Calendar.DATE, listOfRowData[i][j])
+                                                initDialogData(this)
+                                            }
+                                        }
+                                        openDialog = true
+                                    }
+                            ) {
+                                Text(
+                                    modifier = Modifier.fillMaxSize(),
+                                    text = listOfRowData[i][j].toString(),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    textAlign = TextAlign.Center,
+                                    color = dateColor(isCurrentMonth, isSunday)
+                                )
+                            }
+
+
+                            cellIndexOfCalendar++
                         }
-                        var isSunday = j == 0
-                        Box(
-                            modifier = Modifier.weight(1f)
+                    }
+                }
+            }
+        }
+        if (openDialog) {
+            ScheduleDialog(openDialog, dialogData) { openDialog = false }
+        }
+    }
+
+    @ExperimentalComposeUiApi
+    @Composable
+    fun ScheduleDialog(
+        openDialog: Boolean,
+        dialogData: DialogData,
+        dismissDialog: () -> Unit
+    ) {
+        var scheduleContent by remember {
+            mutableStateOf("")
+        }
+        val getNameForDayOfWeek = { value: Int ->
+            listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")[value - 1]
+        }
+        val getNameForMonth = { value: Int ->
+            listOf(
+                "January", "February", "March", "April", "May", "June", "July", "August",
+                "September", "October", "November", "December"
+            )[value]
+        }
+        if (openDialog) {
+            Dialog(
+                onDismissRequest = {
+                    dismissDialog()
+                },
+            ) {
+                Surface(
+                    modifier = Modifier.width(400.dp).height(300.dp),
+                    shape =  RoundedCornerShape(8)
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.SpaceAround,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${getNameForDayOfWeek(dialogData.day)}, ${dialogData.date}, ${
+                                getNameForMonth(
+                                    dialogData.month
+                                )
+                            }",
+                            textAlign = TextAlign.Center,
+                            fontSize = 25.sp
+                        )
+                        OutlinedTextField(
+                            value = scheduleContent,
+                            onValueChange = { scheduleContent = it },
+                            colors = TextFieldDefaults.outlinedTextFieldColors(
+                                focusedBorderColor = Color.LightGray,
+                                unfocusedBorderColor = Color.Gray,
+                                cursorColor = Color.Black)
+                        )
+
+                        Button(
+                            modifier = Modifier.fillMaxWidth(0.8f).height(50.dp),
+                            onClick = { dismissDialog() },
+                            colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF0275d8))
                         ) {
-                            Text(
-                                modifier = Modifier.fillMaxWidth(),
-                                text = listOfRowData[i][j].toString(),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                textAlign = TextAlign.Center,
-                                color = dateColor(isCurrentMonth(cellIndexOfCalendar), isSunday)
-                            )
+                            Text("Submit", color = Color.White)
                         }
-                        cellIndexOfCalendar++
                     }
                 }
             }
         }
     }
+
 
     private fun getDateData(calendar: Calendar): Triple<List<Int>, List<Int>, List<Int>> {
         val lastDateOfPreviousMonth = with(calendar.clone() as Calendar) {
